@@ -3,354 +3,164 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
+export default function Availability() {
+  const [courts, setCourts] = useState<any[]>([]);
+  const [bookings, setBookings] = useState<any[]>([]);
+  const [currentTime, setCurrentTime] = useState("");
+
+  const hours = [
+    ["06:00:00", "07:00:00"],
+    ["07:00:00", "08:00:00"],
+    ["08:00:00", "09:00:00"],
+    ["09:00:00", "10:00:00"],
+    ["10:00:00", "11:00:00"],
+    ["11:00:00", "12:00:00"],
+    ["12:00:00", "13:00:00"],
+    ["13:00:00", "14:00:00"],
+    ["14:00:00", "15:00:00"],
+    ["15:00:00", "16:00:00"],
+    ["16:00:00", "17:00:00"],
+    ["17:00:00", "18:00:00"],
+    ["18:00:00", "19:00:00"],
+    ["19:00:00", "20:00:00"],
+    ["20:00:00", "21:00:00"],
+    ["21:00:00", "22:00:00"],
+    ["22:00:00", "23:00:00"],
+    ["23:00:00", "00:00:00"],
+  ];
+
+  async function loadData() {
+    const today = new Date().toISOString().split("T")[0];
+
+    const { data: courtsData } = await supabase
+      .from("courts")
+      .select("*")
+      .order("id");
+
+    const { data: bookingsData } = await supabase
+      .from("bookings")
+      .select("*")
+      .eq("booking_date", today);
+
+    setCourts(courtsData || []);
+    setBookings(bookingsData || []);
+  }
+
+  useEffect(() => {
+    loadData();
+
+    const realtime = supabase
+      .channel("booking-live")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "bookings",
+        },
+        () => {
+          loadData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(realtime);
+    };
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(
+        new Date().toLocaleTimeString("id-ID", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        })
+      );
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const today = new Date().toLocaleDateString("id-ID", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  return (
+    <section className="bg-slate-950 text-white py-20 px-6">
+
+      <div className="text-center mb-12">
+        <h2 className="text-4xl font-bold">
+          Today's Court Availability
+        </h2>
+
+        <p className="text-xl mt-4">
+          📅 {today}
+        </p>
+
+        <p className="text-green-400 text-2xl font-bold mt-2">
+          🕒 {currentTime} WITA
+        </p>
+      </div>
 
-type Booking = {
-  id: number;
-  court_id: number;
-  booking_date: string;
-  start_time: string;
-  end_time: string;
-};
+      <div className="grid lg:grid-cols-3 md:grid-cols-2 gap-8">
 
+        {courts.map((court) => (
 
-type Court = {
-  id: number;
-  name: string;
-  color: string;
-};
+          <div
+            key={court.id}
+            className="bg-slate-900 rounded-2xl border border-slate-700 p-6"
+          >
 
+            <h3 className="text-2xl font-bold mb-6 text-center">
+              {court.name}
+            </h3>
 
-const times = [
-  "06:00",
-  "07:00",
-  "08:00",
-  "09:00",
-  "10:00",
-  "11:00",
-  "12:00",
-  "13:00",
-  "14:00",
-  "15:00",
-  "16:00",
-  "17:00",
-  "18:00",
-  "19:00",
-  "20:00",
-  "21:00",
-  "22:00",
-  "23:00",
-];
+            {hours.map(([start, end]) => {
 
+              const booked = bookings.some(
+                (booking) =>
+                  booking.court_id === court.id &&
+                  booking.start_time <= start &&
+                  booking.end_time > start
+              );
 
+              return (
+                <div
+                  key={start}
+                  className="flex justify-between items-center py-2 border-b border-slate-800"
+                >
 
-function getToday(){
+                  <span>
+                    {start.substring(0, 5).replace(":", ".")} -{" "}
+                    {end.substring(0, 5).replace(":", ".")}
+                  </span>
 
-  const now = new Date();
+                  <span
+                    className={
+                      booked
+                        ? "text-red-500 font-bold"
+                        : "text-green-400 font-bold"
+                    }
+                  >
+                    {booked ? "BOOKED" : "AVAILABLE"}
+                  </span>
 
-  const year = now.getFullYear();
+                </div>
+              );
 
-  const month = String(now.getMonth()+1).padStart(2,"0");
+            })}
 
-  const day = String(now.getDate()).padStart(2,"0");
+          </div>
 
+        ))}
 
-  return `${year}-${month}-${day}`;
+      </div>
 
-}
-
-
-
-export default function Availability(){
-
-
-const [courts,setCourts] = useState<Court[]>([]);
-
-const [bookings,setBookings] = useState<Booking[]>([]);
-
-const [today,setToday] = useState(getToday());
-
-
-
-async function loadData(){
-
-
-const {data:courtsData,error:courtError}=await supabase
-.from("courts")
-.select("*")
-.order("id");
-
-
-
-const {data:bookingData,error:bookingError}=await supabase
-.from("bookings")
-.select("*")
-.eq("booking_date",today);
-
-
-
-console.log("COURTS",courtsData);
-
-console.log("BOOKINGS",bookingData);
-
-
-
-if(courtsData){
-
-setCourts(courtsData);
-
-}
-
-
-
-if(bookingData){
-
-setBookings(bookingData);
-
-}
-
-
-
-}
-
-
-
-useEffect(()=>{
-
-
-loadData();
-
-
-
-const channel = supabase
-.channel("booking-update")
-
-.on(
-"postgres_changes",
-{
-event:"*",
-schema:"public",
-table:"bookings",
-},
-()=>{
-
-loadData();
-
-}
-
-)
-
-.subscribe();
-
-
-
-const timer = setInterval(()=>{
-
-setToday(getToday());
-
-},60000);
-
-
-
-return()=>{
-
-supabase.removeChannel(channel);
-
-clearInterval(timer);
-
-};
-
-
-
-},[today]);
-
-
-
-
-
-function checkBooked(
-courtId:number,
-time:string
-){
-
-
-return bookings.some((booking)=>{
-
-
-if(booking.court_id !== courtId)
-return false;
-
-
-
-const start =
-booking.start_time.substring(0,5);
-
-
-
-const end =
-booking.end_time.substring(0,5);
-
-
-
-return time >= start && time < end;
-
-
-
-});
-
-
-}
-
-
-
-
-
-return(
-
-
-<section className="bg-slate-950 py-20 px-8 text-white">
-
-
-<h2 className="text-4xl font-bold text-center mb-3">
-
-Today's Court Availability
-
-</h2>
-
-
-
-<p className="text-center text-gray-400 mb-12">
-
-{new Date().toLocaleDateString("id-ID",{
-
-weekday:"long",
-
-day:"numeric",
-
-month:"long",
-
-year:"numeric"
-
-})}
-
-</p>
-
-
-
-
-<div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-
-
-
-{courts.map((court)=>(
-
-
-
-<div
-
-key={court.id}
-
-className="bg-slate-900 rounded-2xl p-6 border border-slate-800"
-
->
-
-
-<h3 className="text-xl font-bold mb-6">
-
-{court.name}
-
-</h3>
-
-
-
-{times.map((time)=>{
-
-
-const booked =
-checkBooked(court.id,time);
-
-
-
-const nextHour =
-String(
-Number(time.substring(0,2))+1
-)
-.padStart(2,"0");
-
-
-
-return(
-
-
-<div
-
-key={time}
-
-className="flex justify-between items-center py-3 border-b border-slate-800"
-
->
-
-
-<span>
-
-{time.replace(":",".")} - {nextHour}.00
-
-</span>
-
-
-
-<span
-
-className={
-
-booked
-
-?
-
-"text-red-400 font-bold"
-
-:
-
-"text-green-400 font-bold"
-
-}
-
->
-
-{booked ? "Booked":"Available"}
-
-
-</span>
-
-
-
-</div>
-
-
-);
-
-
-})}
-
-
-
-</div>
-
-
-
-))}
-
-
-
-</div>
-
-
-
-</section>
-
-
-
-);
-
-
-
+    </section>
+  );
 }

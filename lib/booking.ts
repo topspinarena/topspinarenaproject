@@ -3,25 +3,11 @@ import { supabase } from "./supabase";
 export async function getBookings() {
   const { data, error } = await supabase
     .from("bookings")
-    .select(`
-      id,
-      booking_date,
-      start_time,
-      end_time,
-      status,
-      customer_name,
-      court_id,
-      courts (
-        id,
-        name,
-        color
-      )
-    `);
+    .select("*")
+    .order("court_id")
+    .order("start_time");
 
-  if (error) {
-    console.error(error);
-    return [];
-  }
+  if (error) throw error;
 
   return data;
 }
