@@ -3,54 +3,118 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
+type Court = {
+  id: number;
+  name: string;
+  color?: string;
+};
+
+type Booking = {
+  id: number;
+  court_id: number;
+  booking_date: string;
+  start_time: string;
+  end_time: string;
+  customer_name: string;
+  phone: string;
+  status: string;
+};
+
+const TIME_SLOTS = [
+  ["06:00:00", "07:00:00"],
+  ["07:00:00", "08:00:00"],
+  ["08:00:00", "09:00:00"],
+  ["09:00:00", "10:00:00"],
+  ["10:00:00", "11:00:00"],
+  ["11:00:00", "12:00:00"],
+  ["12:00:00", "13:00:00"],
+  ["13:00:00", "14:00:00"],
+  ["14:00:00", "15:00:00"],
+  ["15:00:00", "16:00:00"],
+  ["16:00:00", "17:00:00"],
+  ["17:00:00", "18:00:00"],
+  ["18:00:00", "19:00:00"],
+  ["19:00:00", "20:00:00"],
+  ["20:00:00", "21:00:00"],
+  ["21:00:00", "22:00:00"],
+  ["22:00:00", "23:00:00"],
+  ["23:00:00", "00:00:00"],
+];
+
 export default function Availability() {
-  const [courts, setCourts] = useState<any[]>([]);
-  const [bookings, setBookings] = useState<any[]>([]);
-  const [currentTime, setCurrentTime] = useState("");
+  const [courts, setCourts] = useState<Court[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
 
-  const hours = [
-    ["06:00:00", "07:00:00"],
-    ["07:00:00", "08:00:00"],
-    ["08:00:00", "09:00:00"],
-    ["09:00:00", "10:00:00"],
-    ["10:00:00", "11:00:00"],
-    ["11:00:00", "12:00:00"],
-    ["12:00:00", "13:00:00"],
-    ["13:00:00", "14:00:00"],
-    ["14:00:00", "15:00:00"],
-    ["15:00:00", "16:00:00"],
-    ["16:00:00", "17:00:00"],
-    ["17:00:00", "18:00:00"],
-    ["18:00:00", "19:00:00"],
-    ["19:00:00", "20:00:00"],
-    ["20:00:00", "21:00:00"],
-    ["21:00:00", "22:00:00"],
-    ["22:00:00", "23:00:00"],
-    ["23:00:00", "00:00:00"],
-  ];
+  const [serverDate, setServerDate] = useState("");
+  const [serverLabel, setServerLabel] = useState("");
+  const [serverTime, setServerTime] = useState("");
 
-  async function loadData() {
-    const today = new Date().toISOString().split("T")[0];
+  async function loadServerTime() {
+    const { data, error } = await supabase.rpc("get_server_time");
 
-    const { data: courtsData } = await supabase
+    if (error) {
+      console.log(error);
+      return;
+    }
+
+    if (data && data.length > 0) {
+      setServerDate(data[0].server_date);
+      setServerLabel(data[0].server_label);
+      setServerTime(data[0].server_time);
+    }
+  }
+
+  async function loadCourts() {
+    const { data } = await supabase
       .from("courts")
       .select("*")
       .order("id");
 
-    const { data: bookingsData } = await supabase
+    if (data) {
+      setCourts(data);
+    }
+  }
+
+  async function loadBookings(date: string) {
+    if (!date) return;
+
+    const { data } = await supabase
       .from("bookings")
       .select("*")
-      .eq("booking_date", today);
+      .eq("booking_date", date);
 
-    setCourts(courtsData || []);
-    setBookings(bookingsData || []);
+    if (data) {
+      setBookings(data);
+    }
+  }
+
+  async function refreshAll() {
+    const { data } = await supabase.rpc("get_server_time");
+
+    if (data && data.length > 0) {
+      setServerDate(data[0].server_date);
+      setServerLabel(data[0].server_label);
+      setServerTime(data[0].server_time);
+
+      await loadBookings(data[0].server_date);
+    }
+
+    await loadCourts();
   }
 
   useEffect(() => {
-    loadData();
+    refreshAll();
 
-    const realtime = supabase
-      .channel("booking-live")
+    const timer = setInterval(async () => {
+      const { data } = await supabase.rpc("get_server_time");
+
+      if (data && data.length > 0) {
+        setServerTime(data[0].server_time);
+      }
+    }, 1000);
+
+    const channel = supabase
+      .channel("booking-realtime")
       .on(
         "postgres_changes",
         {
@@ -59,108 +123,146 @@ export default function Availability() {
           table: "bookings",
         },
         () => {
-          loadData();
+          refreshAll();
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(realtime);
+      clearInterval(timer);
+      supabase.removeChannel(channel);
     };
-  }, []);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(
-        new Date().toLocaleTimeString("id-ID", {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        })
-      );
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  const today = new Date().toLocaleDateString("id-ID", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  }, []);  function isBooked(courtId: number, start: string) {
+    return bookings.some(
+      (booking) =>
+        booking.court_id === courtId &&
+        booking.status === "BOOKED" &&
+        booking.start_time <= start &&
+        booking.end_time > start
+    );
+  }
 
   return (
-    <section className="bg-slate-950 text-white py-20 px-6">
+    <section className="bg-slate-950 min-h-screen py-20 px-6 text-white">
 
-      <div className="text-center mb-12">
-        <h2 className="text-4xl font-bold">
-          Today's Court Availability
-        </h2>
+      <div className="max-w-7xl mx-auto">
 
-        <p className="text-xl mt-4">
-          📅 {today}
-        </p>
+        {/* Header */}
 
-        <p className="text-green-400 text-2xl font-bold mt-2">
-          🕒 {currentTime} WITA
-        </p>
-      </div>
+        <div className="text-center mb-12">
 
-      <div className="grid lg:grid-cols-3 md:grid-cols-2 gap-8">
+          <h2 className="text-5xl font-bold">
+            Today's Court Availability
+          </h2>
 
-        {courts.map((court) => (
+          <p className="mt-4 text-xl text-slate-300">
+            📅 {serverLabel}
+          </p>
 
-          <div
-            key={court.id}
-            className="bg-slate-900 rounded-2xl border border-slate-700 p-6"
-          >
+          <p className="mt-2 text-3xl font-bold text-lime-400">
+            🕒 {serverTime} WITA
+          </p>
 
-            <h3 className="text-2xl font-bold mb-6 text-center">
-              {court.name}
-            </h3>
+        </div>
 
-            {hours.map(([start, end]) => {
+        {/* Schedule Table */}
 
-              const booked = bookings.some(
-                (booking) =>
-                  booking.court_id === court.id &&
-                  booking.start_time <= start &&
-                  booking.end_time > start
-              );
+        <div className="overflow-x-auto rounded-xl border border-slate-700">
 
-              return (
-                <div
+          <table className="w-full">
+
+            <thead className="bg-slate-900">
+
+              <tr>
+
+                <th className="border border-slate-700 p-4 text-left">
+                  Time
+                </th>
+
+                {courts.map((court) => (
+
+                  <th
+                    key={court.id}
+                    className="border border-slate-700 p-4 text-center"
+                  >
+                    {court.name}
+                  </th>
+
+                ))}
+
+              </tr>
+
+            </thead>
+
+            <tbody>
+
+              {TIME_SLOTS.map(([start, end]) => (
+
+                <tr
                   key={start}
-                  className="flex justify-between items-center py-2 border-b border-slate-800"
+                  className="hover:bg-slate-900 transition"
                 >
 
-                  <span>
-                    {start.substring(0, 5).replace(":", ".")} -{" "}
-                    {end.substring(0, 5).replace(":", ".")}
-                  </span>
+                  <td className="border border-slate-700 p-4 font-semibold whitespace-nowrap">
 
-                  <span
-                    className={
-                      booked
-                        ? "text-red-500 font-bold"
-                        : "text-green-400 font-bold"
-                    }
-                  >
-                    {booked ? "BOOKED" : "AVAILABLE"}
-                  </span>
+                    {start.substring(0,5).replace(":","." )} - {end.substring(0,5).replace(":","." )}
 
-                </div>
-              );
+                  </td>
 
-            })}
+                  {courts.map((court) => {
 
+                    const booked = isBooked(court.id, start);
+
+                    return (
+
+                      <td
+                        key={court.id}
+                        className="border border-slate-700 p-3 text-center"
+                      >
+
+                      <div
+                          className={`rounded-lg py-2 font-bold transition ${
+                            booked
+                              ? "bg-red-600 text-white"
+                              : "bg-green-600 text-white"
+                          }`}
+                        >
+                          {booked ? "BOOKED" : "AVAILABLE"}
+                        </div>
+
+                      </td>
+
+                    );
+
+                  })}
+
+                </tr>
+
+              ))}
+
+            </tbody>
+
+          </table>
+
+        </div>
+
+        <div className="mt-8 flex gap-8 justify-center text-sm">
+
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded bg-green-600"></div>
+            <span>Available</span>
           </div>
 
-        ))}
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded bg-red-600"></div>
+            <span>Booked</span>
+          </div>
+
+        </div>
 
       </div>
 
     </section>
   );
+
 }
